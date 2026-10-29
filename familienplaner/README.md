@@ -65,6 +65,23 @@ docker run --rm -v familienplaner-data:/data -v "$PWD":/backup alpine \
   tar czf /backup/familienplaner-backup.tgz -C /data .
 ```
 
+### Als App auf iPhone/iPad (und Android)
+
+Der Familienplaner lässt sich wie eine normale App mit eigenem Icon auf den
+Home-Bildschirm legen – ohne App Store:
+
+1. Die Adresse der App (z. B. `http://192.168.1.20:3000`) in **Safari** öffnen.
+2. Unten auf **Teilen** (Quadrat mit Pfeil nach oben) tippen.
+3. **„Zum Home-Bildschirm“** wählen, Namen bestätigen, **Hinzufügen**.
+
+Die App startet dann im Vollbild ohne Browserleiste. Wichtig: Ist ein `APP_PASSWORD`
+gesetzt, muss man sich in der Home-Bildschirm-App einmal neu anmelden – iOS trennt
+deren Speicher von Safari. Unter Android geht es in Chrome über **⋮ → „Zum Startbildschirm
+hinzufügen“** bzw. **„App installieren“**.
+
+Tipp: Damit die Adresse sich nicht ändert, im Router eine feste IP für den Server
+vergeben. Für Zugriff von unterwegs siehe nächster Abschnitt.
+
 ### Zugriff von unterwegs
 
 Die App ist für das Heimnetz gedacht. Für den Zugriff von außen bitte einen Reverse-Proxy
