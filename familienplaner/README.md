@@ -36,12 +36,16 @@ im Heimnetz, z. B. auf einem NAS oder Raspberry Pi).
 
 Beim ersten Start unter **Familie** die Mitglieder anlegen und auswählen, wer man selbst ist.
 
-### Direkt aus dem GitHub-Repository (z. B. auf einer NAS)
+### Fertiges Image (z. B. für eine NAS)
 
-Ohne Dateien zu kopieren: [`nas/docker-compose.yml`](nas/docker-compose.yml) baut die App
-direkt aus diesem Repository. Inhalt in der Docker-App der NAS unter
-**Projekt → Erstellen** einfügen, Passwort anpassen, bereitstellen. Für ein Update das
-Projekt neu bauen bzw. `docker compose build --pull && docker compose up -d`.
+GitHub baut bei jeder Änderung automatisch ein fertiges Image:
+**`ghcr.io/printoroable/familienplaner:latest`** (für Intel/AMD und ARM).
+Am einfachsten den Inhalt von [`nas/docker-compose.yml`](nas/docker-compose.yml) in der
+Docker-App der NAS unter **Projekt → Erstellen** einfügen, Passwort anpassen, bereitstellen.
+Update: Image neu herunterladen (`docker compose pull && docker compose up -d`).
+
+Alternativ baut [`nas/docker-compose.git.yml`](nas/docker-compose.git.yml) die App direkt
+aus dem Repository, ganz ohne Registry.
 
 ### Ohne Compose
 

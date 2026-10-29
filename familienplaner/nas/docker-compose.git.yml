@@ -1,0 +1,21 @@
+# Variante: Familienplaner direkt aus dem GitHub-Repository bauen.
+# Nur nötig, wenn das fertige Image (siehe docker-compose.yml) nicht nutzbar ist.
+services:
+  familienplaner:
+    build:
+      # Repository-URL # Branch : Unterordner
+      context: https://github.com/Printoroable/claude-code.git#claude/familienplaner-timetree-docker-qedbes:familienplaner
+    image: familienplaner:latest
+    container_name: familienplaner
+    restart: unless-stopped
+    ports:
+      - "3000:3000"            # links den Port ändern, falls 3000 belegt ist
+    environment:
+      APP_PASSWORD: "BitteAendern"   # Familien-Passwort
+      TZ: "Europe/Berlin"
+      MAX_UPLOAD_MB: "25"
+    volumes:
+      - familienplaner-data:/data
+
+volumes:
+  familienplaner-data:
