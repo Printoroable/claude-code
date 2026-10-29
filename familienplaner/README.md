@@ -44,6 +44,12 @@ Am einfachsten den Inhalt von [`nas/docker-compose.yml`](nas/docker-compose.yml)
 Docker-App der NAS unter **Projekt → Erstellen** einfügen, Passwort anpassen, bereitstellen.
 Update: Image neu herunterladen (`docker compose pull && docker compose up -d`).
 
+Zusätzlich auf **Docker Hub** (dann auch über die Image-Suche der NAS auffindbar):
+In GitHub unter *Settings → Secrets and variables → Actions* die Secrets
+`DOCKERHUB_USERNAME` und `DOCKERHUB_TOKEN` (Docker-Hub-Zugangstoken mit
+„Read & Write“) anlegen und den Workflow *Familienplaner Docker-Image* erneut starten.
+Das Image heißt dann `<docker-hub-name>/familienplaner:latest`.
+
 Alternativ baut [`nas/docker-compose.git.yml`](nas/docker-compose.git.yml) die App direkt
 aus dem Repository, ganz ohne Registry.
 
