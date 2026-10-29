@@ -83,3 +83,46 @@ test('Export liefert iCalendar', async () => {
   const res = await fetch(base + 'export.ics');
   assert.match(await res.text(), /^BEGIN:VCALENDAR/);
 });
+
+test('Dokumente an Terminen hochladen, abrufen und löschen', async () => {
+  const boot = (await call('GET', 'bootstrap')).data;
+  const ev = (await call('POST', 'events', {
+    title: 'Klassenfahrt', start: '2026-06-01T08:00', end: '2026-06-01T09:00', calendar_id: boot.calendars[0].id,
+  })).data;
+
+  const up = await fetch(base + `events/${ev.id}/attachments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/pdf', 'X-Filename': encodeURIComponent('Elternbrief Juni.pdf') },
+    body: Buffer.from('%PDF-1.4 test'),
+  });
+  assert.strictEqual(up.status, 200);
+  const att = await up.json();
+  assert.strictEqual(att.filename, 'Elternbrief Juni.pdf');
+  assert.strictEqual(att.size, 13);
+
+  assert.strictEqual((await call('GET', `events/${ev.id}`)).data.attachment_count, 1);
+
+  const dl = await fetch(base + `attachments/${att.id}`);
+  assert.strictEqual(dl.headers.get('content-type'), 'application/pdf');
+  assert.match(dl.headers.get('content-disposition'), /^inline/);
+  assert.strictEqual(await dl.text(), '%PDF-1.4 test');
+
+  // HTML darf nie direkt im Browser laufen
+  const html = await (await fetch(base + `events/${ev.id}/attachments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/html', 'X-Filename': 'x.html' },
+    body: '<script>alert(1)</script>',
+  })).json();
+  const dlHtml = await fetch(base + `attachments/${html.id}`);
+  assert.strictEqual(dlHtml.headers.get('content-type'), 'application/octet-stream');
+  assert.match(dlHtml.headers.get('content-disposition'), /^attachment/);
+
+  // Ohne X-Filename (z. B. fremdes Formular) wird abgelehnt
+  const bad = await fetch(base + `events/${ev.id}/attachments`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: 'x' });
+  assert.strictEqual(bad.status, 400);
+
+  // Termin löschen entfernt auch die Dateien
+  await call('DELETE', `events/${ev.id}`);
+  assert.deepStrictEqual(fs.readdirSync(path.join(dir, 'uploads')), []);
+  assert.strictEqual((await fetch(base + `attachments/${att.id}`)).status, 404);
+});

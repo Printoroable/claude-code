@@ -10,6 +10,8 @@ services:
       # Familien-Passwort. Leer lassen = kein Login (nur im Heimnetz empfehlenswert).
       APP_PASSWORD: "${APP_PASSWORD:-}"
       TZ: "${TZ:-Europe/Berlin}"
+      # Maximale Größe pro hochgeladenem Dokument in MB
+      MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-25}"
     volumes:
       - familienplaner-data:/data
 

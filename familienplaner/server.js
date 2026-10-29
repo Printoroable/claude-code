@@ -14,12 +14,15 @@ const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const APP_PASSWORD = process.env.APP_PASSWORD || '';
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 25);
 
 // ---------------------------------------------------------------------------
 // Datenbank
 // ---------------------------------------------------------------------------
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
+const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const db = new DatabaseSync(process.env.DB_FILE || path.join(DATA_DIR, 'familienplaner.db'));
 
 db.exec(`
@@ -89,6 +92,18 @@ db.exec(`
     done    INTEGER NOT NULL DEFAULT 0,
     pos     INTEGER NOT NULL DEFAULT 0
   );
+
+  CREATE TABLE IF NOT EXISTS attachments (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id    INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    filename    TEXT NOT NULL,
+    mime        TEXT NOT NULL,
+    size        INTEGER NOT NULL,
+    stored_name TEXT NOT NULL UNIQUE,
+    member_id   INTEGER REFERENCES members(id) ON DELETE SET NULL,
+    created_at  TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_attachments_event ON attachments(event_id);
 `);
 
 function getSetting(key, fallback) {
@@ -250,16 +265,129 @@ function commentCounts(eventIds) {
   return map;
 }
 
+function attachmentCounts(eventIds) {
+  const map = new Map();
+  if (!eventIds.length) return map;
+  const rows = db.prepare(
+    `SELECT event_id, COUNT(*) AS n FROM attachments WHERE event_id IN (${eventIds.map(() => '?').join(',')}) GROUP BY event_id`
+  ).all(...eventIds);
+  for (const r of rows) map.set(r.event_id, r.n);
+  return map;
+}
+
 function decorate(rows) {
   const ids = rows.map((r) => r.id);
   const members = memberIdsFor(ids);
   const counts = commentCounts(ids);
+  const files = attachmentCounts(ids);
   return rows.map((r) => ({
     ...r,
     all_day: !!r.all_day,
     member_ids: members.get(r.id) || [],
     comment_count: counts.get(r.id) || 0,
+    attachment_count: files.get(r.id) || 0,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Dokumente / Anhänge
+// Dateien liegen unter DATA_DIR/uploads mit zufälligem Namen; Originalname und
+// Typ stehen in der Datenbank.
+// ---------------------------------------------------------------------------
+
+// Diese Typen darf der Browser direkt anzeigen. Alles andere (z. B. HTML oder
+// SVG, die Skripte enthalten können) wird nur als Download ausgeliefert.
+const INLINE_TYPES = new Set([
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/heic', 'image/avif',
+  'application/pdf', 'text/plain', 'audio/mpeg', 'video/mp4',
+]);
+
+function cleanFilename(name) {
+  const cleaned = String(name || '').replace(/[\u0000-\u001f\u007f\\/]/g, '').replace(/^\.+/, '').trim().slice(0, 150);
+  return cleaned || 'Dokument';
+}
+function cleanMime(type) {
+  const t = String(type || '').split(';')[0].trim().toLowerCase();
+  return /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/.test(t) ? t : 'application/octet-stream';
+}
+
+function listAttachments(eventId) {
+  return db.prepare('SELECT id, event_id, filename, mime, size, member_id, created_at FROM attachments WHERE event_id = ? ORDER BY id')
+    .all(eventId);
+}
+
+function removeStoredFile(storedName) {
+  try {
+    fs.rmSync(path.join(UPLOAD_DIR, storedName), { force: true });
+  } catch (err) {
+    console.error('Konnte Datei nicht löschen:', err.message);
+  }
+}
+
+// Entfernt Dateien, deren Termin (oder Kalender) gelöscht wurde.
+function sweepOrphanFiles() {
+  const known = new Set(db.prepare('SELECT stored_name FROM attachments').all().map((r) => r.stored_name));
+  for (const f of fs.readdirSync(UPLOAD_DIR)) {
+    if (!known.has(f) && !f.endsWith('.part')) removeStoredFile(f);
+  }
+}
+
+function saveUpload(req, eventId) {
+  const limit = MAX_UPLOAD_MB * 1024 * 1024;
+  const declared = Number(req.headers['content-length'] || 0);
+  if (declared > limit) return Promise.reject(new HttpError(413, `Datei ist zu groß (max. ${MAX_UPLOAD_MB} MB)`));
+
+  let filename;
+  try {
+    filename = cleanFilename(decodeURIComponent(req.headers['x-filename'] || ''));
+  } catch {
+    filename = 'Dokument';
+  }
+  const mime = cleanMime(req.headers['content-type']);
+  const storedName = crypto.randomBytes(16).toString('hex');
+  const tmp = path.join(UPLOAD_DIR, storedName + '.part');
+
+  return new Promise((resolve, reject) => {
+    const out = fs.createWriteStream(tmp, { flags: 'wx' });
+    let size = 0;
+    let failed = false;
+    const fail = (err) => {
+      if (failed) return;
+      failed = true;
+      out.destroy();
+      fs.rm(tmp, { force: true }, () => reject(err));
+    };
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > limit) {
+        fail(new HttpError(413, `Datei ist zu groß (max. ${MAX_UPLOAD_MB} MB)`));
+        req.resume();
+      }
+    });
+    req.on('aborted', () => fail(new HttpError(400, 'Upload abgebrochen')));
+    req.on('error', fail);
+    out.on('error', fail);
+    out.on('finish', () => {
+      if (failed) return;
+      if (size === 0) return fail(new HttpError(400, 'Die Datei ist leer'));
+      fs.rename(tmp, path.join(UPLOAD_DIR, storedName), (err) => {
+        if (err) return fail(err);
+        const memberRaw = req.headers['x-member-id'];
+        const memberId = memberRaw && db.prepare('SELECT id FROM members WHERE id = ?').get(Number(memberRaw)) ? Number(memberRaw) : null;
+        try {
+          const r = db.prepare(
+            'INSERT INTO attachments (event_id, filename, mime, size, stored_name, member_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          ).run(eventId, filename, mime, size, storedName, memberId, nowIso());
+          resolve(db.prepare('SELECT id, event_id, filename, mime, size, member_id, created_at FROM attachments WHERE id = ?').get(r.lastInsertRowid));
+        } catch (dbErr) {
+          removeStoredFile(storedName);
+          reject(dbErr);
+        }
+      });
+      return undefined;
+    });
+    req.pipe(out);
+  });
 }
 
 function getEvent(eventId) {
@@ -407,10 +535,10 @@ function recordFailedLogin(ip) {
 // ---------------------------------------------------------------------------
 
 const routes = [];
-function route(method, pattern, handler, { public: isPublic = false } = {}) {
+function route(method, pattern, handler, { public: isPublic = false, raw = false } = {}) {
   const keys = [];
   const re = new RegExp('^' + pattern.replace(/:(\w+)/g, (_, k) => { keys.push(k); return '([^/]+)'; }) + '$');
-  routes.push({ method, re, keys, handler, isPublic });
+  routes.push({ method, re, keys, handler, isPublic, raw });
 }
 
 route('GET', '/api/health', () => ({ ok: true }), { public: true });
@@ -437,7 +565,7 @@ route('POST', '/api/logout', (req, res) => {
 
 // Alles, was die App zum Start braucht, in einem Aufruf.
 route('GET', '/api/bootstrap', () => ({
-  settings: { family_name: getSetting('family_name', 'Unsere Familie') },
+  settings: { family_name: getSetting('family_name', 'Unsere Familie'), max_upload_mb: MAX_UPLOAD_MB },
   members: db.prepare('SELECT * FROM members ORDER BY id').all(),
   calendars: db.prepare('SELECT * FROM calendars ORDER BY id').all(),
 }));
@@ -487,6 +615,7 @@ route('DELETE', '/api/calendars/:id', (req, res, { params }) => {
     throw new HttpError(400, 'Der letzte Kalender kann nicht gelöscht werden');
   }
   db.prepare('DELETE FROM calendars WHERE id = ?').run(id(params.id, 'ID'));
+  sweepOrphanFiles();
   broadcast('calendars');
   broadcast('events');
   return { ok: true };
@@ -528,7 +657,51 @@ route('PUT', '/api/events/:id', (req, res, { params, body }) => {
 });
 route('DELETE', '/api/events/:id', (req, res, { params }) => {
   db.prepare('DELETE FROM events WHERE id = ?').run(id(params.id, 'ID'));
+  sweepOrphanFiles();
   broadcast('events');
+  return { ok: true };
+});
+
+// Dokumente an Terminen
+route('GET', '/api/events/:id/attachments', (req, res, { params }) => listAttachments(id(params.id, 'ID')));
+route('POST', '/api/events/:id/attachments', async (req, res, { params }) => {
+  const eventId = id(params.id, 'ID');
+  getEvent(eventId);
+  const att = await saveUpload(req, eventId);
+  broadcast('attachments:' + eventId);
+  broadcast('events');
+  return att;
+}, { raw: true });
+route('GET', '/api/attachments/:id', (req, res, { params, query }) => {
+  const att = db.prepare('SELECT * FROM attachments WHERE id = ?').get(id(params.id, 'ID'));
+  if (!att) throw new HttpError(404, 'Dokument nicht gefunden');
+  const file = path.join(UPLOAD_DIR, att.stored_name);
+  let stat;
+  try {
+    stat = fs.statSync(file);
+  } catch {
+    throw new HttpError(404, 'Datei fehlt auf dem Server');
+  }
+  const inline = INLINE_TYPES.has(att.mime) && query.get('download') !== '1';
+  const encoded = encodeURIComponent(att.filename);
+  res.writeHead(200, {
+    'Content-Type': inline ? att.mime : 'application/octet-stream',
+    'Content-Length': stat.size,
+    'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${encoded}"; filename*=UTF-8''${encoded}`,
+    'Content-Security-Policy': "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox",
+    'Cache-Control': 'private, max-age=86400',
+  });
+  fs.createReadStream(file).pipe(res);
+  return undefined;
+});
+route('DELETE', '/api/attachments/:id', (req, res, { params }) => {
+  const att = db.prepare('SELECT * FROM attachments WHERE id = ?').get(id(params.id, 'ID'));
+  if (att) {
+    db.prepare('DELETE FROM attachments WHERE id = ?').run(att.id);
+    removeStoredFile(att.stored_name);
+    broadcast('attachments:' + att.event_id);
+    broadcast('events');
+  }
   return { ok: true };
 });
 
@@ -754,14 +927,18 @@ const server = http.createServer(async (req, res) => {
 
     // Einfacher CSRF-Schutz: POST/PUT müssen JSON senden (das kann ein fremdes
     // HTML-Formular nicht). DELETE ist von fremden Seiten ohnehin nur mit CORS möglich.
-    if (req.method === 'POST' || req.method === 'PUT') {
+    // Uploads senden stattdessen den Kopf X-Filename, den ebenfalls nur die
+    // eigene Seite setzen kann.
+    if (match.r.raw) {
+      if (!req.headers['x-filename']) throw new HttpError(400, 'X-Filename fehlt');
+    } else if (req.method === 'POST' || req.method === 'PUT') {
       const type = req.headers['content-type'] || '';
       if (!type.startsWith('application/json')) throw new HttpError(415, 'Erwarte application/json');
     }
 
     const params = {};
     match.r.keys.forEach((k, i) => { params[k] = decodeURIComponent(match.m[i + 1]); });
-    const body = req.method === 'GET' ? {} : await readBody(req);
+    const body = req.method === 'GET' || match.r.raw ? {} : await readBody(req);
     const result = await match.r.handler(req, res, { params, body, query: url.searchParams });
     if (result !== undefined && !res.headersSent) sendJson(res, 200, result);
   } catch (err) {

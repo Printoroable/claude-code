@@ -13,6 +13,9 @@ Alle Familienmitglieder öffnen dieselbe Adresse im Browser (Handy, Tablet, PC) 
 - **Mehrere Kalender** (z. B. Familie, Schule, Arbeit), einzeln ein-/ausblendbar
 - **Wiederholungen**: täglich, wöchentlich, monatlich, jährlich (z. B. Geburtstage), optional mit Enddatum
 - **Kommentare** an jedem Termin („Wer fährt Lena hin?“)
+- **Dokumente an Terminen**: Elternbriefe, Tickets, Einladungen, Fotos usw. anhängen –
+  direkt beim Anlegen oder später in der Terminansicht (am Desktop auch per Drag & Drop).
+  Bilder bekommen eine Vorschau, PDFs öffnen sich im Browser.
 - **Notizen & Listen** mit Abhak-Funktion (Einkaufsliste, Packliste …), anheftbar
 - **Anstehende Termine** der nächsten 60 Tage als Liste
 - **Deutsche Feiertage** werden markiert
@@ -49,12 +52,13 @@ docker run -d --name familienplaner -p 3000:3000 \
 | `APP_PASSWORD` | *(leer)*        | Familien-Passwort. Leer = keine Anmeldung nötig.              |
 | `PORT`         | `3000`          | Port auf dem Host (in `docker-compose.yml`).                  |
 | `TZ`           | `Europe/Berlin` | Zeitzone des Containers.                                      |
-| `DATA_DIR`     | `/data`         | Ablageort der SQLite-Datenbank im Container.                  |
+| `MAX_UPLOAD_MB`| `25`            | Maximale Größe pro Dokument in MB.                            |
+| `DATA_DIR`     | `/data`         | Ablageort von Datenbank und Dokumenten im Container.          |
 
 ### Daten & Backup
 
-Alle Daten liegen in einer SQLite-Datei im Volume `familienplaner-data`
-(`/data/familienplaner.db`). Backup zum Beispiel so:
+Alle Daten liegen im Volume `familienplaner-data`: die Datenbank in
+`/data/familienplaner.db`, hochgeladene Dokumente in `/data/uploads/`. Backup zum Beispiel so:
 
 ```bash
 docker run --rm -v familienplaner-data:/data -v "$PWD":/backup alpine \

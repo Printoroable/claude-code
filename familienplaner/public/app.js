@@ -104,6 +104,48 @@ async function api(method, url, body) {
   return data;
 }
 
+async function uploadFile(eventId, file) {
+  const maxMb = state.settings.max_upload_mb || 25;
+  if (file.size > maxMb * 1024 * 1024) throw new Error(`„${file.name}“ ist zu groß (max. ${maxMb} MB)`);
+  const headers = {
+    'Content-Type': file.type || 'application/octet-stream',
+    'X-Filename': encodeURIComponent(file.name || 'Dokument'),
+  };
+  if (state.me) headers['X-Member-Id'] = String(state.me);
+  const res = await fetch(`api/events/${eventId}/attachments`, { method: 'POST', headers, body: file, credentials: 'same-origin' });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) { showLogin(); throw new Error('Bitte anmelden'); }
+  if (!res.ok) throw new Error(data.error || `Upload fehlgeschlagen (${res.status})`);
+  return data;
+}
+
+async function uploadAll(eventId, files) {
+  let ok = 0;
+  for (const f of files) {
+    toast(`Lade „${f.name}“ hoch …`);
+    if (await guarded(() => uploadFile(eventId, f))) ok++;
+  }
+  if (ok) toast(ok === 1 ? 'Dokument hinzugefügt' : `${ok} Dokumente hinzugefügt`);
+  return ok;
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1).replace('.', ',')} MB`;
+}
+function fileIcon(mime, name) {
+  if (mime.startsWith('image/')) return '🖼️';
+  if (mime === 'application/pdf' || /\.pdf$/i.test(name)) return '📕';
+  if (/word|\.docx?$/i.test(mime + name)) return '📘';
+  if (/sheet|excel|\.xlsx?$|\.csv$/i.test(mime + name)) return '📗';
+  if (mime.startsWith('audio/')) return '🎵';
+  if (mime.startsWith('video/')) return '🎬';
+  if (mime.startsWith('text/')) return '📝';
+  return '📄';
+}
+const PREVIEW_IMAGES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif'];
+
 function toast(msg) {
   const el = $('#toast');
   el.textContent = msg;
@@ -306,6 +348,7 @@ function eventItemHtml(ev, day) {
   if (ev.location) meta.push(`📍 ${esc(ev.location)}`);
   if (ev.repeat !== 'none') meta.push(`🔁 ${REPEAT_LABELS[ev.repeat]}`);
   if (ev.comment_count) meta.push(`💬 ${ev.comment_count}`);
+  if (ev.attachment_count) meta.push(`📎 ${ev.attachment_count}`);
   if (state.calendars.length > 1 && cal) meta.push(esc(cal.name));
   return `<li class="event-item" data-key="${ev.id}|${ev.occurrence}" style="--c:${eventColor(ev)}">
     <span class="stripe"></span>
@@ -401,6 +444,7 @@ function renderAll() {
 // ---------------------------------------------------------------------------
 
 function openModal(html, onMount) {
+  dropHandler = null;
   $('#modalSheet').innerHTML = html;
   $('#modal').classList.remove('hidden');
   onMount?.($('#modalSheet'));
@@ -411,6 +455,7 @@ function closeModal() {
   $('#modal').classList.add('hidden');
   $('#modalSheet').innerHTML = '';
   modalContext = null;
+  dropHandler = null;
 }
 let modalContext = null;
 
@@ -419,12 +464,13 @@ function swatchesHtml(selected, { allowAuto = false } = {}) {
     `<button type="button" class="swatch-btn ${c === selected ? 'active' : ''}" data-color="${c}" style="--c:${c}"></button>`).join('')}</div>`;
 }
 function bindSwatches(root, onPick) {
-  root.addEventListener('click', (e) => {
+  // An die Farbleiste selbst binden: das Modal-Element wird wiederverwendet.
+  $$('.swatches', root).forEach((el) => el.addEventListener('click', (e) => {
     const btn = e.target.closest('.swatch-btn');
     if (!btn) return;
     $$('.swatch-btn', btn.parentElement).forEach((b) => b.classList.toggle('active', b === btn));
     onPick(btn.dataset.color || null);
-  });
+  }));
 }
 
 // ---------- Termin: Detailansicht ----------
@@ -463,6 +509,12 @@ async function openEventDetail(key) {
     ${occ.member_ids.length ? `<div class="detail-row"><span class="ico">👥</span><span>${occ.member_ids.map(memberById).filter(Boolean).map((m) => esc(m.name)).join(', ')}</span></div>` : ''}
     ${occ.note ? `<div class="detail-row"><span class="ico">📝</span><span class="detail-note">${esc(occ.note)}</span></div>` : ''}
     <div class="divider"></div>
+    <div class="section-head" style="margin:0">
+      <h3>Dokumente</h3>
+      <label class="pill-btn small ghost file-btn">+ Hinzufügen<input type="file" id="attachInput" multiple hidden></label>
+    </div>
+    <div class="attachments" id="attachments"><div class="muted">Lädt …</div></div>
+    <div class="divider"></div>
     <h3 style="margin:0">Kommentare</h3>
     <div class="comments" id="comments"><div class="muted">Lädt …</div></div>
     <form class="comment-form" id="commentForm">
@@ -482,8 +534,68 @@ async function openEventDetail(key) {
         await loadComments(occ.id);
       });
     };
+    $('#attachInput', root).onchange = async (e) => {
+      const files = [...e.target.files];
+      e.target.value = '';
+      if (!files.length) return;
+      await uploadAll(occ.id, files);
+      await loadAttachments(occ.id);
+    };
+    bindDropZone(root, async (files) => { await uploadAll(occ.id, files); await loadAttachments(occ.id); });
     loadComments(occ.id);
+    loadAttachments(occ.id);
   });
+}
+
+// Dateien per Drag & Drop ins offene Fenster ziehen (Desktop).
+// Die Listener werden einmalig in bindEvents() registriert.
+let dropHandler = null;
+function bindDropZone(root, onFiles) {
+  dropHandler = onFiles;
+}
+function installDropZone() {
+  const sheet = $('#modalSheet');
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  sheet.addEventListener('dragover', (e) => {
+    if (!dropHandler || !hasFiles(e)) return;
+    e.preventDefault();
+    sheet.classList.add('dropping');
+  });
+  sheet.addEventListener('dragleave', (e) => { if (!sheet.contains(e.relatedTarget)) sheet.classList.remove('dropping'); });
+  sheet.addEventListener('drop', (e) => {
+    sheet.classList.remove('dropping');
+    if (!dropHandler) return;
+    e.preventDefault();
+    const files = [...(e.dataTransfer?.files || [])];
+    if (files.length) dropHandler(files);
+  });
+}
+
+async function loadAttachments(eventId) {
+  const list = await guarded(() => api('GET', `events/${eventId}/attachments`));
+  const el = $('#attachments');
+  if (!list || !el) return;
+  el.innerHTML = list.length
+    ? list.map((a) => {
+      const m = memberById(a.member_id);
+      const url = `api/attachments/${a.id}`;
+      const thumb = PREVIEW_IMAGES.includes(a.mime)
+        ? `<img class="att-thumb" src="${url}" alt="" loading="lazy">`
+        : `<span class="att-icon">${fileIcon(a.mime, a.filename)}</span>`;
+      const when = new Date(a.created_at).toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
+      return `<div class="attachment">
+        <a class="att-main" href="${url}" target="_blank" rel="noopener">
+          ${thumb}
+          <span class="att-text">
+            <span class="att-name">${esc(a.filename)}</span>
+            <span class="att-meta">${formatSize(a.size)} · ${when}${m ? ' · ' + esc(m.name) : ''}</span>
+          </span>
+        </a>
+        <a class="link-btn" href="${url}?download=1" title="Herunterladen" aria-label="Herunterladen">⬇︎</a>
+        <button class="link-btn" data-del-attachment="${a.id}" data-name="${esc(a.filename)}" title="Löschen" aria-label="Löschen">✕</button>
+      </div>`;
+    }).join('')
+    : '<div class="muted">Noch keine Dokumente. Füge z. B. Einladungen, Tickets, Elternbriefe oder Fotos hinzu.</div>';
 }
 
 async function loadComments(eventId) {
@@ -553,6 +665,11 @@ function openEventEditor(ev) {
       <div class="field"><span>Farbe</span>${swatchesHtml(data.color, { allowAuto: true })}</div>
       <label class="field"><span>Ort</span><input name="location" maxlength="200" value="${esc(data.location)}" placeholder="z. B. Sporthalle"></label>
       <label class="field"><span>Notiz</span><textarea name="note" maxlength="5000" placeholder="Mitbringen, Treffpunkt …">${esc(data.note)}</textarea></label>
+      <div class="field"><span>Dokumente</span>
+        ${!isNew && data.attachment_count ? `<div class="muted">${data.attachment_count} Dokument${data.attachment_count === 1 ? '' : 'e'} vorhanden – verwalten in der Terminansicht.</div>` : ''}
+        <div class="attachments" id="pendingFiles"></div>
+        <label class="pill-btn small ghost file-btn" style="align-self:flex-start">📎 Dokument anhängen<input type="file" id="editorFiles" multiple hidden></label>
+      </div>
       ${!isNew ? `<button type="button" class="pill-btn danger" id="deleteEventBtn" style="align-self:flex-start">Termin löschen</button>` : ''}
       ${!isNew && data.repeat !== 'none' ? '<p class="muted" style="margin:0">Änderungen gelten für die ganze Serie.</p>' : ''}
     </form>
@@ -591,6 +708,30 @@ function openEventEditor(ev) {
     };
     bindSwatches(root, (c) => { data.color = c; });
 
+    // Ausgewählte Dateien werden nach dem Speichern hochgeladen.
+    const pending = [];
+    const renderPending = () => {
+      $('#pendingFiles', root).innerHTML = pending.map((f, i) => `<div class="attachment">
+        <span class="att-main"><span class="att-icon">${fileIcon(f.type || '', f.name)}</span>
+        <span class="att-text"><span class="att-name">${esc(f.name)}</span><span class="att-meta">${formatSize(f.size)} · wird beim Speichern hochgeladen</span></span></span>
+        <button type="button" class="link-btn" data-pending="${i}" aria-label="Entfernen">✕</button>
+      </div>`).join('');
+    };
+    const addPending = (files) => {
+      const maxMb = state.settings.max_upload_mb || 25;
+      for (const f of files) {
+        if (f.size > maxMb * 1024 * 1024) toast(`„${f.name}“ ist zu groß (max. ${maxMb} MB)`);
+        else pending.push(f);
+      }
+      renderPending();
+    };
+    $('#editorFiles', root).onchange = (e) => { addPending([...e.target.files]); e.target.value = ''; };
+    $('#pendingFiles', root).onclick = (e) => {
+      const b = e.target.closest('[data-pending]');
+      if (b) { pending.splice(+b.dataset.pending, 1); renderPending(); }
+    };
+    bindDropZone(root, addPending);
+
     form.onsubmit = (e) => {
       e.preventDefault();
       const payload = {
@@ -609,12 +750,13 @@ function openEventEditor(ev) {
       };
       guarded(async () => {
         const saved = isNew ? await api('POST', 'events', payload) : await api('PUT', `events/${ev.id}`, payload);
+        if (pending.length) await uploadAll(saved.id, pending);
         state.selected = saved.start.slice(0, 10);
         state.month = state.selected.slice(0, 7);
         closeModal();
         await loadEvents();
         renderAll();
-        toast(isNew ? 'Termin angelegt' : 'Termin gespeichert');
+        if (!pending.length) toast(isNew ? 'Termin angelegt' : 'Termin gespeichert');
       });
     };
 
@@ -830,6 +972,7 @@ function shiftMonth(delta) {
 }
 
 function bindEvents() {
+  installDropZone();
   $('#prevBtn').onclick = () => shiftMonth(-1);
   $('#nextBtn').onclick = () => shiftMonth(1);
   const goToday = () => { state.selected = todayStr(); switchView('calendar'); goToMonth(todayStr().slice(0, 7)); };
@@ -870,6 +1013,18 @@ function bindEvents() {
     if (em) return editMember(memberById(+em.dataset.editMember));
     const ec = e.target.closest('[data-edit-cal]');
     if (ec) return editCalendar(calendarById(+ec.dataset.editCal));
+    const da = e.target.closest('[data-del-attachment]');
+    if (da) {
+      if (!confirm(`„${da.dataset.name}“ löschen?`)) return undefined;
+      return guarded(async () => {
+        await api('DELETE', `attachments/${da.dataset.delAttachment}`);
+        if (modalContext?.type === 'event') loadAttachments(modalContext.id);
+        await loadEvents();
+        renderMonth();
+        renderDayPanel();
+        renderUpcoming();
+      });
+    }
     const dc = e.target.closest('[data-del-comment]');
     if (dc) {
       return guarded(async () => {
@@ -952,6 +1107,7 @@ function connectStream() {
       if (topics.has('memos')) renderMemos();
       if (state.view === 'family' && !$('#familyNameInput').matches(':focus')) renderFamily();
       if (modalContext?.type === 'event' && topics.has('comments:' + modalContext.id)) loadComments(modalContext.id);
+      if (modalContext?.type === 'event' && topics.has('attachments:' + modalContext.id)) loadAttachments(modalContext.id);
     }, 250);
   };
 }
