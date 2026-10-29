@@ -1,9 +1,12 @@
-# Familienplaner mit dem fertigen Image aus der GitHub Container Registry.
+# Familienplaner direkt aus dem GitHub-Repository bauen und starten.
 # Diese Datei allein genügt – z. B. in der Docker-App der NAS unter
 # „Projekt → Erstellen“ einfügen und das Passwort anpassen.
 services:
   familienplaner:
-    image: ghcr.io/printoroable/familienplaner:latest
+    build:
+      # Repository-URL # Branch : Unterordner
+      context: https://github.com/Printoroable/claude-code.git#claude/familienplaner-timetree-docker-qedbes:familienplaner
+    image: familienplaner:latest
     container_name: familienplaner
     restart: unless-stopped
     ports:

@@ -36,22 +36,16 @@ im Heimnetz, z. B. auf einem NAS oder Raspberry Pi).
 
 Beim ersten Start unter **Familie** die Mitglieder anlegen und auswählen, wer man selbst ist.
 
-### Fertiges Image (z. B. für eine NAS)
+### Auf einer NAS (z. B. UGREEN, Synology)
 
-GitHub baut bei jeder Änderung automatisch ein fertiges Image:
-**`ghcr.io/printoroable/familienplaner:latest`** (für Intel/AMD und ARM).
-Am einfachsten den Inhalt von [`nas/docker-compose.yml`](nas/docker-compose.yml) in der
-Docker-App der NAS unter **Projekt → Erstellen** einfügen, Passwort anpassen, bereitstellen.
-Update: Image neu herunterladen (`docker compose pull && docker compose up -d`).
+Es gibt kein veröffentlichtes Image – die NAS baut die App selbst. Zwei Wege:
 
-Zusätzlich auf **Docker Hub** (dann auch über die Image-Suche der NAS auffindbar):
-In GitHub unter *Settings → Secrets and variables → Actions* die Secrets
-`DOCKERHUB_USERNAME` und `DOCKERHUB_TOKEN` (Docker-Hub-Zugangstoken mit
-„Read & Write“) anlegen und den Workflow *Familienplaner Docker-Image* erneut starten.
-Das Image heißt dann `<docker-hub-name>/familienplaner:latest`.
-
-Alternativ baut [`nas/docker-compose.git.yml`](nas/docker-compose.git.yml) die App direkt
-aus dem Repository, ganz ohne Registry.
+- **Ordner hochladen:** den Ordner `familienplaner` auf die NAS kopieren, in der
+  Docker-App unter **Projekt → Erstellen** diesen Ordner wählen, Passwort in der
+  `docker-compose.yml` anpassen, bereitstellen.
+- **Direkt aus dem Repository:** den Inhalt von [`nas/docker-compose.yml`](nas/docker-compose.yml)
+  als Projekt einfügen. Update: Projekt neu bauen
+  (`docker compose build --pull && docker compose up -d`).
 
 ### Ohne Compose
 
