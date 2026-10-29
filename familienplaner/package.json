@@ -1,0 +1,13 @@
+{
+  "name": "familienplaner",
+  "version": "1.0.0",
+  "description": "Geteilter Familienkalender im TimeTree-Stil – selbst gehostet mit Docker",
+  "main": "server.js",
+  "private": true,
+  "license": "MIT",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+  }
+}

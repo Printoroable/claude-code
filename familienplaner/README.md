@@ -1,0 +1,88 @@
+# Familienplaner 📅
+
+Ein geteilter Familienkalender im Stil von **TimeTree** – selbst gehostet als Docker-Container.
+Alle Familienmitglieder öffnen dieselbe Adresse im Browser (Handy, Tablet, PC) und sehen
+Änderungen sofort live.
+
+## Funktionen
+
+- **Monatsansicht wie TimeTree**: mehrtägige Termine als durchgehende Farbbalken,
+  Uhrzeit-Termine mit Farbmarker, „+n“ bei vollen Tagen, Wischen zum Monatswechsel
+- **Tagesliste** unter dem Kalender (Handy) bzw. daneben (Desktop)
+- **Familienmitglieder** mit eigener Farbe – Termine zeigen, wer dabei ist
+- **Mehrere Kalender** (z. B. Familie, Schule, Arbeit), einzeln ein-/ausblendbar
+- **Wiederholungen**: täglich, wöchentlich, monatlich, jährlich (z. B. Geburtstage), optional mit Enddatum
+- **Kommentare** an jedem Termin („Wer fährt Lena hin?“)
+- **Notizen & Listen** mit Abhak-Funktion (Einkaufsliste, Packliste …), anheftbar
+- **Anstehende Termine** der nächsten 60 Tage als Liste
+- **Deutsche Feiertage** werden markiert
+- **Live-Sync** zwischen allen Geräten (Server-Sent Events)
+- **Export** aller Termine als `.ics` (Google/Apple/Outlook)
+- Optionales **Familien-Passwort**, Dark Mode, als App auf dem Homescreen installierbar (PWA)
+
+## Start mit Docker
+
+```bash
+cd familienplaner
+cp .env.example .env        # Passwort in .env anpassen
+docker compose up -d --build
+```
+
+Danach im Browser öffnen: <http://localhost:3000> (bzw. `http://<IP-des-Servers>:3000`
+im Heimnetz, z. B. auf einem NAS oder Raspberry Pi).
+
+Beim ersten Start unter **Familie** die Mitglieder anlegen und auswählen, wer man selbst ist.
+
+### Ohne Compose
+
+```bash
+docker build -t familienplaner .
+docker run -d --name familienplaner -p 3000:3000 \
+  -e APP_PASSWORD=geheim -e TZ=Europe/Berlin \
+  -v familienplaner-data:/data familienplaner
+```
+
+### Einstellungen (Umgebungsvariablen)
+
+| Variable       | Standard        | Bedeutung                                                     |
+|----------------|-----------------|---------------------------------------------------------------|
+| `APP_PASSWORD` | *(leer)*        | Familien-Passwort. Leer = keine Anmeldung nötig.              |
+| `PORT`         | `3000`          | Port auf dem Host (in `docker-compose.yml`).                  |
+| `TZ`           | `Europe/Berlin` | Zeitzone des Containers.                                      |
+| `DATA_DIR`     | `/data`         | Ablageort der SQLite-Datenbank im Container.                  |
+
+### Daten & Backup
+
+Alle Daten liegen in einer SQLite-Datei im Volume `familienplaner-data`
+(`/data/familienplaner.db`). Backup zum Beispiel so:
+
+```bash
+docker run --rm -v familienplaner-data:/data -v "$PWD":/backup alpine \
+  tar czf /backup/familienplaner-backup.tgz -C /data .
+```
+
+### Zugriff von unterwegs
+
+Die App ist für das Heimnetz gedacht. Für den Zugriff von außen bitte einen Reverse-Proxy
+mit HTTPS davorschalten (z. B. Caddy, Traefik, Nginx Proxy Manager) oder ein VPN
+wie WireGuard/Tailscale nutzen – und unbedingt `APP_PASSWORD` setzen.
+
+## Entwicklung ohne Docker
+
+Benötigt Node.js ≥ 22.13 (nutzt das eingebaute `node:sqlite`, keine npm-Pakete nötig).
+
+```bash
+npm start      # http://localhost:3000
+npm test       # API- und Wiederholungs-Tests
+```
+
+## Aufbau
+
+```
+familienplaner/
+├── server.js            # HTTP-Server, REST-API, SQLite, Live-Updates
+├── public/              # Web-Oberfläche (HTML, CSS, JavaScript ohne Framework)
+├── test/api.test.js     # Tests
+├── Dockerfile
+└── docker-compose.yml
+```
