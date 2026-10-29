@@ -1,0 +1,19 @@
+services:
+  familienplaner:
+    build: .
+    image: familienplaner:latest
+    container_name: familienplaner
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      # Familien-Passwort. Leer lassen = kein Login (nur im Heimnetz empfehlenswert).
+      APP_PASSWORD: "${APP_PASSWORD:-}"
+      TZ: "${TZ:-Europe/Berlin}"
+      # Maximale Größe pro hochgeladenem Dokument in MB
+      MAX_UPLOAD_MB: "${MAX_UPLOAD_MB:-25}"
+    volumes:
+      - familienplaner-data:/data
+
+volumes:
+  familienplaner-data:

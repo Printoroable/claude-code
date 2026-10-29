@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3eb370">
+  <!-- Als App vom Home-Bildschirm (iOS/Android) -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Familie">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="format-detection" content="telephone=no">
+  <title>Familienplaner</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="icon" href="icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" sizes="180x180">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app" class="hidden">
+    <header class="topbar">
+      <button class="icon-btn" id="prevBtn" aria-label="Vorheriger Monat">‹</button>
+      <div class="topbar-title">
+        <div id="familyName" class="family-name"></div>
+        <button id="monthLabel" class="month-label" aria-label="Zu heute springen"></button>
+      </div>
+      <button class="icon-btn" id="nextBtn" aria-label="Nächster Monat">›</button>
+      <button class="today-btn" id="todayBtn">Heute</button>
+    </header>
+
+    <main>
+      <!-- Kalender -->
+      <section id="view-calendar" class="view active">
+        <div class="calendar-layout">
+          <div class="month">
+            <div class="weekdays" id="weekdays"></div>
+            <div class="weeks" id="weeks"></div>
+          </div>
+          <aside class="day-panel" id="dayPanel">
+            <div class="day-panel-head">
+              <div>
+                <div class="day-panel-date" id="dayPanelDate"></div>
+                <div class="day-panel-weekday" id="dayPanelWeekday"></div>
+              </div>
+              <button class="pill-btn" id="dayAddBtn">+ Termin</button>
+            </div>
+            <ul class="event-list" id="dayEvents"></ul>
+          </aside>
+        </div>
+      </section>
+
+      <!-- Liste -->
+      <section id="view-list" class="view">
+        <div class="list-wrap">
+          <h2>Anstehende Termine</h2>
+          <div id="upcoming"></div>
+        </div>
+      </section>
+
+      <!-- Notizen -->
+      <section id="view-memos" class="view">
+        <div class="list-wrap">
+          <div class="section-head">
+            <h2>Notizen &amp; Listen</h2>
+            <button class="pill-btn" id="newMemoBtn">+ Neu</button>
+          </div>
+          <div class="memo-grid" id="memoGrid"></div>
+        </div>
+      </section>
+
+      <!-- Familie / Einstellungen -->
+      <section id="view-family" class="view">
+        <div class="list-wrap">
+          <h2>Familie</h2>
+          <div class="card">
+            <label class="field">
+              <span>Name des Kalenders</span>
+              <div class="row">
+                <input id="familyNameInput" maxlength="60">
+                <button class="pill-btn" id="saveFamilyName">Speichern</button>
+              </div>
+            </label>
+            <label class="field">
+              <span>Ich bin …</span>
+              <select id="meSelect"></select>
+            </label>
+          </div>
+
+          <div class="section-head">
+            <h3>Mitglieder</h3>
+            <button class="pill-btn" id="addMemberBtn">+ Mitglied</button>
+          </div>
+          <ul class="settings-list" id="memberList"></ul>
+
+          <div class="section-head">
+            <h3>Kalender</h3>
+            <button class="pill-btn" id="addCalendarBtn">+ Kalender</button>
+          </div>
+          <ul class="settings-list" id="calendarList"></ul>
+
+          <div class="section-head"><h3>Daten</h3></div>
+          <div class="card">
+            <p class="muted">Alle Termine als .ics-Datei herunterladen, z. B. für Google- oder Apple-Kalender.</p>
+            <a class="pill-btn" href="api/export.ics" download>Kalender exportieren</a>
+            <button class="pill-btn ghost hidden" id="logoutBtn">Abmelden</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <button class="fab" id="fab" aria-label="Neuer Termin">+</button>
+
+    <nav class="tabbar">
+      <button class="tab active" data-view="calendar"><span class="tab-ico">📅</span>Kalender</button>
+      <button class="tab" data-view="list"><span class="tab-ico">🗒️</span>Termine</button>
+      <button class="tab" data-view="memos"><span class="tab-ico">✅</span>Notizen</button>
+      <button class="tab" data-view="family"><span class="tab-ico">👪</span>Familie</button>
+    </nav>
+  </div>
+
+  <!-- Anmeldung -->
+  <div id="login" class="login hidden">
+    <form class="login-card" id="loginForm">
+      <img src="icon.svg" alt="" width="64" height="64">
+      <h1>Familienplaner</h1>
+      <p class="muted">Bitte das Familien-Passwort eingeben.</p>
+      <input type="password" id="loginPassword" placeholder="Passwort" autocomplete="current-password" required>
+      <button class="primary-btn" type="submit">Anmelden</button>
+      <p class="error" id="loginError"></p>
+    </form>
+  </div>
+
+  <!-- Modal-Container -->
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-sheet" id="modalSheet"></div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
