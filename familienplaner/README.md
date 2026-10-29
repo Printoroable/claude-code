@@ -36,6 +36,13 @@ im Heimnetz, z. B. auf einem NAS oder Raspberry Pi).
 
 Beim ersten Start unter **Familie** die Mitglieder anlegen und auswählen, wer man selbst ist.
 
+### Direkt aus dem GitHub-Repository (z. B. auf einer NAS)
+
+Ohne Dateien zu kopieren: [`nas/docker-compose.yml`](nas/docker-compose.yml) baut die App
+direkt aus diesem Repository. Inhalt in der Docker-App der NAS unter
+**Projekt → Erstellen** einfügen, Passwort anpassen, bereitstellen. Für ein Update das
+Projekt neu bauen bzw. `docker compose build --pull && docker compose up -d`.
+
 ### Ohne Compose
 
 ```bash
